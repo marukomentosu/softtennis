@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Soft Tennis Wide (Web版)</title>
+    <style>
+        body {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            margin: 0; padding: 0;
+            background-color: #f0f0f0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            flex: 1;
+            background-color: #1b5e20;
+            position: relative;
+            cursor: crosshair;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            z-index: 1;
+        }
+
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+
+        #controls {
+            position: relative;
+            z-index: 100;
+            background-color: white;
+            padding: 6px 10px;
+            padding-bottom: calc(8px + env(safe-area-inset-bottom));
+            box-shadow: 0 -4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            gap: 5px; 
+            flex-shrink: 0;
+        }
+
+        .input-row { display: flex; gap: 5px; }
+        input[type="text"], input[type="datetime-local"] {
+            flex: 1; padding: 6px; border: 1px solid #ccc; border-radius: 4px;
+            font-size: 12px; outline: none; width: 0; background-color: #f9f9f9;
+        }
+        input[type="text"]:focus { border-color: #2E7D32; background-color: #fff; }
+
+        .team-section, .shot-type-section {
+            display: flex; flex-direction: column; gap: 3px;
+        }
+        .hitter-row, .shot-type-row { display: flex; gap: 3px; }
+        
+        .hitter-btn, .shot-type-btn {
+            flex: 1; padding: 8px 2px; border: 1px solid #e0e0e0; border-radius: 4px;
+            background-color: #f5f5f5; font-size: 11px; font-weight: bold; color: #555;
+            cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+            touch-action: manipulation;
+        }
+
+        /* 選手選択ボタンのアクティブ色 */
+        #btn-p1.active { background-color: #FFC107; color: black; border-color: #FFA000; }
+        #btn-p2.active { background-color: #E91E63; color: white; border-color: #C2185B; }
+        #btn-o1.active { background-color: #00BCD4; color: black; border-color: #0097A7; }
+        #btn-o2.active { background-color: #CE93D8; color: black; border-color: #AB47BC; }
+
+        /* 球種選択ボタンのアクティブ色 */
+        .shot-type-btn.active {
+            background-color: #2E7D32; color: white; border-color: #1B5E20;
+        }
+        /* ロブのボタンは点線っぽく見せる */
+        #btn-lob { border-style: dashed; }
+        #btn-lob.active { border-style: solid; }
+
+
+        #status-label {
+            text-align: center; font-weight: bold; font-size: 13px; color: #333;
+            min-height: 16px; margin-top: 2px;
+        }
+
+        .switch-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0 4px; margin-bottom: 2px;
+        }
+        .switch-group {
+            display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: bold;
+        }
+        input[type="checkbox"] {
+            width: 18px; height: 18px; accent-color: #2E7D32; cursor: pointer;
+        }
+
+        .button-row { display: flex; justify-content: space-between; gap: 8px; }
+        button.action-btn {
+            flex: 1; padding: 10px 0; border-radius: 6px; border: none;
+            font-size: 13px; font-weight: bold; cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2); touch-action: manipulation;
+        }
+        button.action-btn:active { opacity: 0.7; transform: translateY(1px); }
+        #btn-undo { background-color: #fff; border: 1px solid #ccc; color: #333; }
+        #btn-save { background-color: #2196F3; color: white; }
+        #btn-clear { background-color: #ffcdd2; color: #d32f2f; }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="courtCanvas"></canvas>
+    </div>
+
+    <div id="controls">
+        <div class="input-row">
+            <input type="text" id="input-tournament" placeholder="大会名">
+            <input type="datetime-local" id="input-date">
+        </div>
+
+        <div class="input-row">
+            <input type="text" id="input-p1" placeholder="自分1" value="味方1">
+            <input type="text" id="input-p2" placeholder="自分2" value="味方2">
+            <input type="text" id="input-o1" placeholder="相手1" value="相手1">
+            <input type="text" id="input-o2" placeholder="相手2" value="相手2">
+        </div>
+
+        <div class="team-section">
+            <div class="hitter-row">
+                <button id="btn-p1" class="hitter-btn active" onclick="selectHitter(0)">味方1</button>
+                <button id="btn-p2" class="hitter-btn" onclick="selectHitter(1)">味方2</button>
+            </div>
+            <div class="hitter-row">
+                <button id="btn-o1" class="hitter-btn" onclick="selectHitter(2)">相手1</button>
+                <button id="btn-o2" class="hitter-btn" onclick="selectHitter(3)">相手2</button>
+            </div>
+        </div>
+
+        <div class="shot-type-section">
+            <div class="shot-type-row">
+                <button id="btn-shoot" class="shot-type-btn active" onclick="selectShotType('shoot')">シュート (実線)</button>
+                <button id="btn-lob" class="shot-type-btn" onclick="selectShotType('lob')">ロブ (点線)</button>
+            </div>
+        </div>
+
+        <div id="status-label">①打点をタップしてください</div>
+
+        <div class="switch-row">
+            <div class="switch-group">
+                <input type="checkbox" id="sw-lines" checked>
+                <label for="sw-lines">線</label>
+            </div>
+            <div class="switch-group">
+                <input type="checkbox" id="sw-marks" checked>
+                <label for="sw-marks">点</label>
+            </div>
+        </div>
+
+        <div class="button-row">
+            <button id="btn-undo" class="action-btn">戻る</button>
+            <button id="btn-save" class="action-btn">📷 保存</button>
+            <button id="btn-clear" class="action-btn">消去</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('courtCanvas');
+        const ctx = canvas.getContext('2d');
+        const statusLabel = document.getElementById('status-label');
+        
+        const inputTournament = document.getElementById('input-tournament');
+        const inputDate = document.getElementById('input-date');
+        const inputP1 = document.getElementById('input-p1');
+        const inputP2 = document.getElementById('input-p2');
+        const inputO1 = document.getElementById('input-o1');
+        const inputO2 = document.getElementById('input-o2');
+
+        const btnP1 = document.getElementById('btn-p1');
+        const btnP2 = document.getElementById('btn-p2');
+        const btnO1 = document.getElementById('btn-o1');
+        const btnO2 = document.getElementById('btn-o2');
+        
+        // 球種ボタン
+        const btnShoot = document.getElementById('btn-shoot');
+        const btnLob = document.getElementById('btn-lob');
+
+        const PLAYER_COLORS = [
+            { bg: '#FFC107', text: '#000000', name: '味方1' },
+            { bg: '#E91E63', text: '#FFFFFF', name: '味方2' },
+            { bg: '#00BCD4', text: '#000000', name: '相手1' },
+            { bg: '#CE93D8', text: '#000000', name: '相手2' }
+        ];
+
+        let shots = [];
+        let tempStartPoint = null;
+        let dpr = 1;
+        let activeHitterIndex = 0;
+        let currentShotType = 'shoot'; // 'shoot' or 'lob'
+
+        function setNowToDateInput() {
+            try {
+                const now = new Date();
+                now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                if(inputDate) inputDate.value = now.toISOString().slice(0, 16);
+            } catch(e) { console.error(e); }
+        }
+        setNowToDateInput();
+
+        function updateButtonLabels() {
+            if(btnP1) btnP1.textContent = (inputP1.value.trim() || "味方1");
+            if(btnP2) btnP2.textContent = (inputP2.value.trim() || "味方2");
+            if(btnO1) btnO1.textContent = (inputO1.value.trim() || "相手1");
+            if(btnO2) btnO2.textContent = (inputO2.value.trim() || "相手2");
+        }
+        [inputP1, inputP2, inputO1, inputO2].forEach(el => {
+            if(el) el.addEventListener('input', updateButtonLabels);
+        });
+
+        window.selectHitter = function(index) {
+            activeHitterIndex = index;
+            [btnP1, btnP2, btnO1, btnO2].forEach((btn, i) => {
+                if(btn) btn.classList.toggle('active', i === index);
+            });
+            draw();
+        };
+
+        // 球種選択関数
+        window.selectShotType = function(type) {
+            currentShotType = type;
+            btnShoot.classList.toggle('active', type === 'shoot');
+            btnLob.classList.toggle('active', type === 'lob');
+        };
+
+        function getInitial(name) {
+            if (!name) return "";
+            return name.charAt(0);
+        }
+
+        function getCurrentInitial() {
+            let name = "";
+            if (activeHitterIndex === 0 && inputP1) name = inputP1.value;
+            else if (activeHitterIndex === 1 && inputP2) name = inputP2.value;
+            else if (activeHitterIndex === 2 && inputO1) name = inputO1.value;
+            else if (activeHitterIndex === 3 && inputO2) name = inputO2.value;
+
+            if (!name) return String(activeHitterIndex + 1);
+            return getInitial(name);
+        }
+
+        let courtGeometry = { ox: 0, oy: 0, w: 0, h: 0, netY: 0 };
+        const config = { showLines: true, showMarks: true };
+        const COURT_ASPECT_RATIO = 10.97 / 23.77;
+
+        function resizeCanvas() {
+            const container = document.getElementById('canvas-container');
+            if(!container) return;
+            dpr = window.devicePixelRatio || 1;
+            canvas.width = container.clientWidth * dpr;
+            canvas.height = container.clientHeight * dpr;
+            canvas.style.width = container.clientWidth + 'px';
+            canvas.style.height = container.clientHeight + 'px';
+            ctx.scale(dpr, dpr);
+            draw();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        
+        function draw() {
+            if(!ctx) return;
+            const w = canvas.width / dpr;
+            const h = canvas.height / dpr;
+
+            ctx.fillStyle = '#1b5e20';
+            ctx.fillRect(0, 0, w, h);
+
+            // 描画設定をリセット（実線に戻す）
+            ctx.setLineDash([]);
+
+            const maxW = w * 0.90;
+            const maxH = h * 0.90;
+            let courtW, courtH;
+
+            if (maxH * COURT_ASPECT_RATIO <= maxW) {
+                courtH = maxH;
+                courtW = courtH * COURT_ASPECT_RATIO;
+            } else {
+                courtW = maxW;
+                courtH = courtW / COURT_ASPECT_RATIO;
+            }
+
+            const ox = (w - courtW) / 2;
+            const oy = (h - courtH) / 2;
+            const netY = oy + (courtH / 2);
+            courtGeometry = { ox, oy, w: courtW, h: courtH, netY };
+
+            // コート描画
+            ctx.fillStyle = '#2E7D32';
+            ctx.fillRect(ox, oy, courtW, courtH);
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(ox, oy, courtW, courtH);
+
+            const alleyW = courtW * 0.15;
+            ctx.beginPath();
+            ctx.moveTo(ox + alleyW, oy); ctx.lineTo(ox + alleyW, oy + courtH);
+            ctx.moveTo(ox + courtW - alleyW, oy); ctx.lineTo(ox + courtW - alleyW, oy + courtH);
+            ctx.stroke();
+
+            const serviceH = (courtH / 2) * 0.55;
+            ctx.beginPath();
+            ctx.moveTo(ox + alleyW, netY - serviceH); ctx.lineTo(ox + courtW - alleyW, netY - serviceH);
+            ctx.moveTo(ox + alleyW, netY + serviceH); ctx.lineTo(ox + courtW - alleyW, netY + serviceH);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(ox + courtW / 2, netY - serviceH); ctx.lineTo(ox + courtW / 2, netY + serviceH);
+            ctx.stroke();
+
+            ctx.strokeStyle = '#dddddd';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(ox - (courtW * 0.05), netY); ctx.lineTo(ox + courtW + (courtW * 0.05), netY);
+            ctx.stroke();
+
+            // --- ショット軌跡の描画 ---
+            if (config.showLines) {
+                shots.forEach(shot => {
+                    const c = parseColor(shot.color);
+                    ctx.strokeStyle = `rgba(${c.r}, ${c.g}, ${c.b}, 0.6)`;
+                    ctx.lineWidth = 2;
+                    
+                    // 球種に応じて線種を変更
+                    if (shot.type === 'lob') {
+                        ctx.setLineDash([5, 5]); // 点線
+                    } else {
+                        ctx.setLineDash([]); // 実線
+                    }
+
+                    ctx.beginPath();
+                    ctx.moveTo(shot.start.x, shot.start.y);
+                    ctx.lineTo(shot.end.x, shot.end.y);
+                    ctx.stroke();
+                });
+                // 描画後は必ず実線に戻す
+                ctx.setLineDash([]);
+            }
+
+            // マークの描画
+            if (config.showMarks) {
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = 'bold 12px sans-serif';
+
+                shots.forEach(shot => {
+                    const pColor = PLAYER_COLORS[shot.hitterIndex] || PLAYER_COLORS[0];
+                    ctx.fillStyle = pColor.bg; 
+                    ctx.beginPath();
+                    ctx.arc(shot.start.x, shot.start.y, 12, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = pColor.text;
+                    ctx.fillText(shot.initial, shot.start.x, shot.start.y + 1);
+                    ctx.fillStyle = shot.color;
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.arc(shot.end.x, shot.end.y, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                });
+            }
+
+            // 入力ガイド
+            if (tempStartPoint) {
+                const sx = tempStartPoint.x;
+                const sy = tempStartPoint.y;
+                const activeColor = PLAYER_COLORS[activeHitterIndex];
+                
+                ctx.fillStyle = `rgba(255, 255, 255, 0.4)`;
+                ctx.beginPath();
+                ctx.arc(sx, sy, 16, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = activeColor.bg;
+                ctx.beginPath();
+                ctx.arc(sx, sy, 12, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = activeColor.text;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillText(getCurrentInitial(), sx, sy + 1);
+            }
+        }
+
+        function parseColor(colorStr) {
+            if (colorStr === '#2196F3') return { r: 33, g: 150, b: 243 };
+            if (colorStr === '#F44336') return { r: 244, g: 67, b: 54 };
+            return { r: 255, g: 255, b: 255 };
+        }
+
+        function getTouchPos(canvas, evt) {
+            const rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+            if (evt.changedTouches && evt.changedTouches.length > 0) {
+                clientX = evt.changedTouches[0].clientX;
+                clientY = evt.changedTouches[0].clientY;
+            } else {
+                clientX = evt.clientX;
+                clientY = evt.clientY;
+            }
+            return { x: clientX - rect.left, y: clientY - rect.top };
+        }
+
+        function handleInput(e) {
+            if(e.cancelable) e.preventDefault();
+            const loc = getTouchPos(canvas, e);
+
+            if (!tempStartPoint) {
+                tempStartPoint = loc;
+                statusLabel.innerText = "着弾点をタップ";
+            } else {
+                const start = tempStartPoint;
+                const end = loc;
+                const { ox, oy, w, h, netY } = courtGeometry;
+                const x = end.x;
+                const y = end.y;
+
+                let c = 'white'; let m = "IN";
+                if (Math.abs(y - netY) < (h * 0.05)) { c = '#2196F3'; m = "NET"; }
+                else if ((ox <= x && x <= ox + w) && (oy <= y && y <= oy + h)) { c = 'white'; m = "IN"; }
+                else { c = '#F44336'; m = "OUT"; }
+
+                const initial = getCurrentInitial();
+                // ショットデータに球種(type)を追加して保存
+                shots.push({ 
+                    start: start, end: end, color: c, 
+                    initial: initial, hitterIndex: activeHitterIndex,
+                    type: currentShotType // 'shoot' or 'lob'
+                });
+                tempStartPoint = null;
+                statusLabel.innerText = `${m} (${initial}) 記録完了`;
+            }
+            draw();
+        }
+
+        canvas.addEventListener('mousedown', handleInput);
+        canvas.addEventListener('touchstart', handleInput, {passive: false});
+
+        const swLines = document.getElementById('sw-lines');
+        if(swLines) swLines.addEventListener('change', (e) => { config.showLines = e.target.checked; draw(); });
+
+        const swMarks = document.getElementById('sw-marks');
+        if(swMarks) swMarks.addEventListener('change', (e) => { config.showMarks = e.target.checked; draw(); });
+
+        const btnUndo = document.getElementById('btn-undo');
+        if(btnUndo) btnUndo.addEventListener('click', () => {
+            if (tempStartPoint) { tempStartPoint = null; statusLabel.innerText = "キャンセル"; }
+            else if (shots.length > 0) { shots.pop(); statusLabel.innerText = "1つ戻しました"; }
+            draw();
+        });
+
+        const btnClear = document.getElementById('btn-clear');
+        if(btnClear) btnClear.addEventListener('click', () => {
+            if (confirm('全データを消去しますか？')) {
+                shots = []; tempStartPoint = null; statusLabel.innerText = "①打点をタップしてください"; draw();
+            }
+        });
+
+        const btnSave = document.getElementById('btn-save');
+        if(btnSave) btnSave.addEventListener('click', () => {
+            try {
+                const link = document.createElement('a');
+                const tourney = inputTournament ? inputTournament.value.trim() : "";
+                const dateVal = inputDate ? inputDate.value : "";
+                
+                const p1 = inputP1 ? inputP1.value.trim() : "";
+                const p2 = inputP2 ? inputP2.value.trim() : "";
+                const o1 = inputO1 ? inputO1.value.trim() : "";
+                const o2 = inputO2 ? inputO2.value.trim() : "";
+
+                let myTeam = "";
+                if (p1 && p2) myTeam = `${p1}・${p2}`; else if (p1) myTeam = p1; else if (p2) myTeam = p2;
+                let oppTeam = "";
+                if (o1 && o2) oppTeam = `${o1}・${o2}`; else if (o1) oppTeam = o1; else if (o2) oppTeam = o2;
+
+                let fileName = "";
+                if (tourney) fileName += `${tourney}_`;
+                if (myTeam) fileName += `${myTeam}`;
+                if (myTeam && oppTeam) fileName += "_vs_";
+                if (oppTeam) fileName += `${oppTeam}`;
+                if (fileName) fileName += "_";
+
+                if (dateVal) fileName += dateVal.replace(/[-:]/g, '').replace('T', '_');
+                else {
+                    const now = new Date();
+                    const y = now.getFullYear();
+                    const m = String(now.getMonth() + 1).padStart(2, '0');
+                    const d = String(now.getDate()).padStart(2, '0');
+                    const time = now.toTimeString().split(' ')[0].replace(/:/g, '');
+                    fileName += `${y}${m}${d}_${time}`;
+                }
+                fileName += ".png";
+
+                link.download = fileName;
+                const margin = 30; 
+                const cutX = (courtGeometry.ox - margin) * dpr;
+                const cutY = (courtGeometry.oy - margin) * dpr;
+                const cutW = (courtGeometry.w + margin * 2) * dpr;
+                const cutH = (courtGeometry.h + margin * 2) * dpr;
+                const finalX = Math.max(0, cutX);
+                const finalY = Math.max(0, cutY);
+                const finalW = Math.min(canvas.width - finalX, cutW);
+                const finalH = Math.min(canvas.height - finalY, cutH);
+
+                if (finalW <= 0 || finalH <= 0) { statusLabel.innerText = "保存エラー"; return; }
+
+                const offCanvas = document.createElement('canvas');
+                offCanvas.width = finalW; offCanvas.height = finalH;
+                const offCtx = offCanvas.getContext('2d');
+                
+                // 保存用キャンバスでも描画設定をリセット
+                offCtx.setLineDash([]);
+                offCtx.drawImage(canvas, finalX, finalY, finalW, finalH, 0, 0, finalW, finalH);
+                
+                link.href = offCanvas.toDataURL('image/png');
+                link.click();
+                statusLabel.innerText = "画像を保存しました";
+            } catch(e) { console.error(e); statusLabel.innerText = "保存エラー"; }
+        });
+
+        updateButtonLabels();
+        resizeCanvas();
+    </script>
+</body>
+</html>
